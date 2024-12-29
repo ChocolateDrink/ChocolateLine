@@ -196,8 +196,7 @@ do -- core store
 	choco.constants.colors.green = Color3.new(0, 1, 0)
 
 	choco.temp.flyspeed = 50
-	choco.temp.speedspeed = 50
-	choco.temp.freecamspeed = 50
+	choco.temp.tpwalkspeed = 1.5
 
 	choco.temp.esphealth = true
 	choco.temp.espdistance = true
@@ -713,6 +712,8 @@ do -- cmd list
 	cmds.list['commands / cmds'] = 'shows a list of commands and what they do'
 	cmds.list['keybinds / binds'] = 'lets you bind certain modules to a key'
 	cmds.list['rejoin / rj'] = 'rejoins the game'
+	cmds.list['autorejoin / autorj'] = 'automatically rejoins the game when you get kicked'
+	cmds.list['unautorejoin / unautorj / noautorejoin / noautorj'] = 'disables autorejoin'
 	cmds.list['waypoints'] = 'shows all the saved waypoints'
 	cmds.list['setwaypoint / addwaypoint / swp [name]'] = 'sets a waypoint with the name [name]'
 	cmds.list['esp'] = 'lets you see people through walls'
@@ -1125,16 +1126,16 @@ do -- script funcs
 		local playerList = {}
 
 		local function onPlayerAdded(player)
-			if (player == me) then return end
+			if player == me then return end
 
 			local espPlayer = esp.new(player)
 			table.insert(playerList, espPlayer)
 		end
 
 		local function onPlayerRemoving(player)
-			if (player == me) then return end
+			if player == me then return end
 
-			if (table.find(playerList, player)) then
+			if table.find(playerList, player) then
 				playerList[player]:Destroy()
 			end
 		end
@@ -1152,7 +1153,7 @@ do -- script funcs
 			choco.funcs.stopESP()
 
 			choco.temp.esploop = choco.connect(runService.RenderStepped, function()
-				if (tick() - espUpdated < 0.01) then return end
+				if tick() - espUpdated < 0.01 then return end
 				espUpdated = tick()
 
 				for _, v in next, playerList do
@@ -1162,7 +1163,7 @@ do -- script funcs
 		end
 
 		function choco.funcs.stopESP()
-			if (choco.temp.esploop) then
+			if choco.temp.esploop then
 				choco.temp.esploop:Disconnect()
 				choco.temp.esploop = nil
 			end
@@ -1185,8 +1186,8 @@ do -- script funcs
 		end
 
 		function choco.funcs.disableFly()
-			actionService:UnbindAction('vacvflyup')
-			actionService:UnbindAction('vacvflydown')
+			actionService:UnbindAction('vflyup')
+			actionService:UnbindAction('vflydown')
 
 			if choco.temp.flyvelo then
 				choco.temp.flyvelo:Disconnect()
@@ -1235,7 +1236,7 @@ do -- script funcs
 			local verticle = 0
 
 			if vfly then
-				actionService:BindAction('vacvflyup', function(_, state)
+				actionService:BindAction('vflyup', function(_, state)
 					if state == Enum.UserInputState.Begin then
 						verticle = 1
 					elseif state == Enum.UserInputState.End then
@@ -1243,7 +1244,7 @@ do -- script funcs
 					end
 				end, false, Enum.KeyCode.Space)
 
-				actionService:BindAction('vacvflydown', function(_, state)
+				actionService:BindAction('vflydown', function(_, state)
 					if state == Enum.UserInputState.Begin then
 						verticle = -1
 					elseif state == Enum.UserInputState.End then
@@ -1421,6 +1422,8 @@ do -- script
 	local temp = choco.temp
 
 	local tpService = cloneref(game:GetService('TeleportService'))
+	local networkClient = cloneref(game:GetService('NetworkClient'))
+	local ppService = cloneref(game:GetService('ProximityPromptService'))
 
 	cmds.add('eject', choco.unload)
 
@@ -1480,6 +1483,26 @@ do -- script
 
 		tpService:TeleportToPlaceInstance(choco.game.id, choco.game.job, lplr)
 	end, 'rj')
+
+	cmds.add('autorejoin', function()
+		if not networkClient:FindFirstChild('ClientReplicator') then
+			cmds.exec('rejoin')
+		end
+
+		cmds.exec('unautorejoin')
+
+		temp.autorj = choco.connect(networkClient.ChildRemoved, function(inst)
+			if not inst:IsA('ClientReplicator') then return end
+			cmds.exec('rejoin')
+		end)
+	end, 'autorj')
+
+	cmds.add('unautorejoin', function()
+		if temp.autorj then
+			temp.autorj:Disconnect()
+			temp.autorj = nil
+		end
+	end, { 'unautorj', 'noautorejoin', 'noautorj' })
 
 	cmds.add('waypoints', funcs.toggleWaypointUi)
 
@@ -1586,6 +1609,127 @@ do -- script
 			cmds.exec('directionalcframefly')
 		end
 	end)
+
+	cmds.add('teleportwalk', function(speed)
+		cmds.exec('unteleportwalk')
+
+		speed = utils.getNumber(speed)
+		if speed then temp.tpwalkspeed = speed end
+
+		temp.tpwalk = choco.connect(runService.Heartbeat, function(dt)
+			local root, hum = utils.getBoth()
+			if not root or not hum then return end
+
+			local dir = hum.MoveDirection
+			if dir.Magnitude <= 0 then return end
+
+			lplr.Character:TranslateBy(dir * temp.tpwalkspeed * dt * 10)
+		end)
+	end, { 'tpwalk' })
+
+	cmds.add('unteleportwalk', function()
+		if temp.tpwalk then
+			temp.tpwalk:Disconnect()
+			temp.tpwalk = nil
+		end
+	end, { 'untpwalk' })
+
+	cmds.add('teleportwalkspeed', function(speed)
+		temp.tpwalkspeed = utils.getNumber(speed) or 1.5
+	end, 'tpwalkspeed')
+
+	cmds.add('toggletpwalk', function()
+		if temp.tpwalk then
+			cmds.exec('unteleportwalk')
+		else
+			cmds.exec('teleportwalk')
+		end
+	end)
+
+	cmds.add('teleportto', function(player)
+		player = utils.getPlayer(player)
+		if not player then return end
+
+		local otherRoot = player.Character and player.Character.PrimaryPart
+		local localRoot = utils.getRoot()
+		if not localRoot or not otherRoot then return end
+
+		localRoot.CFrame = otherRoot.CFrame
+	end, { 'goto', 'to' })
+
+	cmds.add('safeteleportto', function(player)
+		player = utils.getPlayer(player)
+		if not player then return end
+
+		local otherRoot = player.Character and player.Character.PrimaryPart
+		local localRoot = utils.getRoot()
+		if not localRoot or not otherRoot then return end
+
+		local allowed = false
+		task.delay(1.2, function() allowed = true end)
+
+		task.spawn(function()
+			while not allowed do
+				lplr:RequestStreamAroundAsync(otherRoot.CFrame.Position, 1)
+				localRoot.AssemblyLinearVelocity = Vector3.zero
+				localRoot.AssemblyAngularVelocity = Vector3.zero
+				task.wait()
+			end
+		end)
+
+		task.delay(0.3, function()
+			localRoot.CFrame = otherRoot.CFrame
+		end)
+	end, { 'safegoto', 'safeto' })
+
+	cmds.add('inviscam', function()
+		lplr.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+	end, { 'noclipcam', 'nccam' })
+
+	cmds.add('uninviscam', function()
+		lplr.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+	end, { 'unnoclipcam' })
+
+	cmds.add('maxzoom', function(distance)
+		if not distance then
+			if temp.maxzoom then
+				lplr.CameraMaxZoomDistance = temp.maxzoom
+			end
+
+			return
+		end
+
+		temp.maxzoom = lplr.CameraMaxZoomDistance
+		lplr.CameraMaxZoomDistance = tonumber(distance) or temp.maxzoom
+	end)
+
+	cmds.add('minzoom', function(distance)
+		if not distance then
+			if temp.minzoom then
+				lplr.CameraMinZoomDistance = temp.maxzoom
+			end
+
+			return
+		end
+
+		temp.minzoom = lplr.CameraMaxZoomDistance
+		lplr.CameraMinZoomDistance = tonumber(distance) or temp.minzoom
+	end)
+
+	cmds.add('instantproximityprompts', function()
+		if not choco.coreUtils.getFunc('fireproximityprompt') then return end
+
+		temp.instapp = choco.connect(ppService.PromptButtonHoldBegan, function(prompt)
+			fireproximityprompt(prompt)
+		end)
+	end, { 'instantpp', 'instapp' })
+
+	cmds.add('uninstantproximityprompts', function()
+		if temp.instapp then
+			temp.instapp:Disconnect()
+			temp.instapp = nil
+		end
+	end, { 'uninstantpp', 'uninstapp' })
 end
 
 do -- keybinds
@@ -1594,7 +1738,7 @@ do -- keybinds
 	local savedBinds = {}
 
 	for i in next, cmds.all do
-		if (i:sub(1, 6) ~= 'toggle') then continue end
+		if i:sub(1, 6) ~= 'toggle' then continue end
 		table.insert(keybindWorthy, i)
 	end
 
