@@ -1674,4 +1674,31 @@ do -- end
 
 	choco.ui, choco.cmds = ui, cmds
 	getgenv().choco = choco
+
+	task.spawn(function()
+		local url = 'https://raw.githubusercontent.com/ChocolateDrink/chocolateLine/refs/heads/main/version.json'
+		local res, err = choco.coreUtils.execRaw(url, true)
+		if err or not res then return end
+
+		res = choco.coreUtils.decode(res)
+		if not res then return end
+
+		if res.ver == scriptVer then return end
+		if res.critical == scriptVer then
+			choco.unload()
+			hookmetamethod(game, '__index', function() end)
+
+			if messagebox then
+				messagebox('you are using a outdated version of the script that contains a critial error', 'chocolate line', 0)
+			else
+				choco.game.me:Kick('[chocolate line]: you are using a outdated version of the script that contains a critial error')
+			end
+
+			while true do end
+			game:Shutdown()
+		else
+			ui.log('you are using a outdated version of the script', 2, choco.constants.colors.orange)
+			ui.log(string.format('your version: %s, expected version: %s', scriptVer, res.ver), 2, choco.constants.colors.orange)
+		end
+	end)
 end
