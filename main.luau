@@ -732,6 +732,18 @@ do -- cmd list
 	cmds.list['togglevfly'] = 'toggles vehicle fly (for keybinds)'
 	cmds.list['toggledirfly'] = 'toggles directional fly (for keybinds)'
 	cmds.list['toggledircframefly'] = 'toggles cframe directional fly (for keybinds)'
+	cmds.list['teleportwalk / tpwalk [speed?]'] = 'speeds you up by smoothly moving you'
+	cmds.list['unteleportwalk / untpwalk'] = 'disables tp walk'
+	cmds.list['teleportwalkspeed / tpwalkspeed [speed]'] = 'sets the speed of tpwalk to [speed]'
+	cmds.list['toggletpwalk'] = 'toggles tpwalk (for keybinds)'
+	cmds.list['teleportto / goto / to [player]'] = 'teleports to [player]'
+	cmds.list['safeteleportto / safegoto / safeto [player]'] = 'safely teleports to [player]'
+	cmds.list['inviscam / noclipcam / nccam'] = 'lets your camera go through walls'
+	cmds.list['uninviscam / unnoclipcam'] = 'disables noclipcam'
+	cmds.list['maxzoom [distanc]'] = 'sets yout camera\'s max zoom distance to [distance]'
+	cmds.list['minzoom [distanc]'] = 'sets yout camera\'s min zoom distance to [distance]'
+	cmds.list['instantproximityprompts / instantpp / instapp'] = 'lets you fire prox prompts instantly'
+	cmds.list['uninstantproximityprompts / uninstantpp / uninstapp'] = 'disables instantproximityprompts'
 end
 
 do -- script utils
@@ -1625,14 +1637,14 @@ do -- script
 
 			lplr.Character:TranslateBy(dir * temp.tpwalkspeed * dt * 10)
 		end)
-	end, { 'tpwalk' })
+	end, 'tpwalk')
 
 	cmds.add('unteleportwalk', function()
 		if temp.tpwalk then
 			temp.tpwalk:Disconnect()
 			temp.tpwalk = nil
 		end
-	end, { 'untpwalk' })
+	end, 'untpwalk')
 
 	cmds.add('teleportwalkspeed', function(speed)
 		temp.tpwalkspeed = utils.getNumber(speed) or 1.5
@@ -1688,7 +1700,7 @@ do -- script
 
 	cmds.add('uninviscam', function()
 		lplr.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
-	end, { 'unnoclipcam' })
+	end, 'unnoclipcam')
 
 	cmds.add('maxzoom', function(distance)
 		if not distance then
