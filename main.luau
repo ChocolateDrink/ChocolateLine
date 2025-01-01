@@ -7,7 +7,7 @@ if getgenv().choco then
 end
 
 local startLoad = tick()
-local scriptVer = 1
+local scriptVer = 2
 
 local cloneref = cloneref or function(i) return i end
 local httpService = cloneref(game:GetService('HttpService'))
@@ -713,6 +713,7 @@ do -- cmd list
 	cmds.list['keybinds / binds'] = 'lets you bind certain modules to a key'
 	cmds.list['rejoin / rj'] = 'rejoins the game'
 	cmds.list['autorejoin / autorj'] = 'automatically rejoins the game when you get kicked'
+	cmds.list['serverhop / shop / sh'] = 'join a new server'
 	cmds.list['unautorejoin / unautorj / noautorejoin / noautorj'] = 'disables autorejoin'
 	cmds.list['waypoints'] = 'shows all the saved waypoints'
 	cmds.list['setwaypoint / addwaypoint / swp [name]'] = 'sets a waypoint with the name [name]'
@@ -744,6 +745,31 @@ do -- cmd list
 	cmds.list['minzoom [distanc]'] = 'sets yout camera\'s min zoom distance to [distance]'
 	cmds.list['instantproximityprompts / instantpp / instapp'] = 'lets you fire prox prompts instantly'
 	cmds.list['uninstantproximityprompts / uninstantpp / uninstapp'] = 'disables instantproximityprompts'
+	cmds.list['dex'] = 'executes dex explorer'
+	cmds.list['remotespy / rspy'] = 'executes simple spy'
+	cmds.list['antienvleak'] = 'makes your executor not leak its environment'
+	cmds.list['f3x'] = 'gives you f3x building tools'
+	cmds.list['fieldofview / fov [fov]'] = 'sets your field of view to [fov]'
+	cmds.list['loopfieldofview / loopfov / lfov [fov]'] = 'loop sets your field of view to [fov]'
+	cmds.list['unloopfieldofview / unloopfov / unlfov'] = 'disables loop fov'
+	cmds.list['rolewatch [group id] [role]'] = 'leaves the game / serverhops when someone of [role] from [group id] joins your game'
+	cmds.list['unrolewatch / norolewatch'] = 'disables role watch'
+	cmds.list['rolewatchleave'] = 'sets the role watch action to leave the game'
+	cmds.list['rolewatchserverhop / rolewatchsh'] = 'sets the role watch action to server hop'
+	cmds.list['graptools'] = 'picks up all the tools dropped on the map'
+	cmds.list['antikick'] = 'prevents local scripts from kicking you'
+	cmds.list['nofog'] = 'removes fog'
+	cmds.list['loopnofog / lnofog'] = 'loop removes fog'
+	cmds.list['unloopnofog / unlnofog'] = 'disables loopnofog'
+	cmds.list['fullbright / fb'] = 'makes the game more bright'
+	cmds.list['loopfullbright / lfullbright / lfp'] = 'loops fullbright'
+	cmds.list['unloopfullbright / unlfullbright / unlfb'] = 'disables loopfullbright'
+	cmds.list['nobloom'] = 'removes all bloom effects'
+	cmds.list['loopnobloom / lnobloom'] = 'loop removes all bloom effects'
+	cmds.list['unloopnobloom / unlnobloom'] = 'disables loopnobloom'
+	cmds.list['noblur'] = 'removes all blur effects'
+	cmds.list['loopnoblur / lnoblur'] = 'loop removes all blur effects'
+	cmds.list['unloopnoblur / unlnoblur'] = 'disables loopnoblur'
 end
 
 do -- script utils
@@ -907,6 +933,7 @@ do -- script funcs
 	local cam = choco.game.cam
 
 	local actionService = cloneref(game:GetService('ContextActionService'))
+	local groupService = cloneref(game:GetService('GroupService'))
 
 	function choco.funcs.showCmdsUi()
 		if ui.cmdsCached then return end
@@ -1423,6 +1450,120 @@ do -- script funcs
 			end)
 		end
 	end
+
+	do -- role watch
+		choco.temp.rolewatch = {}
+		choco.temp.rolewatch.groups = {}
+		choco.temp.rolewatch.roles = {}
+
+		local function getGroupInfo(group)
+			local suc, res = pcall(groupService.GetGroupInfoAsync, groupService, group)
+			if not suc then
+				local tries = 0
+				repeat
+					suc, res = pcall(groupService.GetGroupInfoAsync, groupService, group)
+					tries += 1
+					task.wait()
+				until suc or tries > 10
+				if not suc then res = nil end
+			end
+
+			return res
+		end
+
+		local function getPlayerRank(player, group)
+			local suc, res = pcall(player.GetRankInGroup, player, group)
+			if not suc then
+				local tries = 0
+				repeat
+					suc, res = pcall(player.GetRankInGroup, player, group)
+					tries += 1
+					task.wait()
+				until suc or tries > 10
+				if not suc then res = nil end
+			end
+
+			return res
+		end
+
+		local function getHigherRank(group, role)
+			local roles = getGroupInfo(group)
+			roles = type(roles) == 'table' and roles.Roles or {}
+
+			for _, v in next, roles do
+				if v.Name:lower() ~= role:lower() then continue end
+				return v.Rank
+			end
+
+			return nil
+		end
+
+		local function onPlayerAdded(player)
+			if player == choco.game.me and not choco.debugging then return end
+
+			for i in next, choco.temp.rolewatch.groups do
+				local groupRank = getPlayerRank(player, i)
+				if not groupRank then continue end
+
+				for _, v in next, choco.temp.rolewatch.roles do
+					local higherRank = getHigherRank(i, v)
+					if not higherRank then continue end
+
+					if higherRank > groupRank then continue end
+
+					if choco.temp.rolewatch.action == 'hop' then
+						cmds.exec('serverhop')
+					else
+						choco.game.me:Kick(string.format('\n\nkicked by role watcher:\nplayer - %s\nrank - %s\n', player.Name, higherRank))
+					end
+				end
+			end
+		end
+
+		function choco.funcs.startRoleWatch(groupId, role)
+			role = typeof(role) == 'table' and table.concat(role, ' ') or role
+
+			local roleCheck = getHigherRank(groupId, role)
+			if not roleCheck then
+				ui.log(string.format('role "%s" does not exist in group "%s"', role, groupId), 1, choco.constants.colors.orange)
+				return
+			end
+
+			if not choco.temp.rolewatch.groups[groupId] then
+				choco.temp.rolewatch.groups[groupId] = {}
+			end
+
+			table.insert(choco.temp.rolewatch.groups[groupId], role)
+			table.insert(choco.temp.rolewatch.roles, role)
+
+			for _, v in next, players:GetPlayers() do
+				task.spawn(onPlayerAdded, v)
+			end
+
+			ui.log(string.format('watching group %s for "%s"', groupId, role), 0)
+
+			if choco.temp.rolewatch.loop then
+				choco.temp.rolewatch.loop:Disconnect()
+				choco.temp.rolewatch.loop = nil
+			end
+
+			choco.temp.rolewatch.loop = choco.connect(players.PlayerAdded, function(player)
+				onPlayerAdded(player)
+			end)
+		end
+
+		function choco.funcs.stopRoleWatch()
+			if choco.temp.rolewatch.loop then
+				choco.temp.rolewatch.loop:Disconnect()
+				choco.temp.rolewatch.loop = nil
+			end
+
+			table.clear(choco.temp.rolewatch.groups)
+			table.clear(choco.temp.rolewatch.roles)
+
+			ui.log('role watch has stopped', 0)
+		end
+	end
 end
 
 do -- script
@@ -1436,6 +1577,7 @@ do -- script
 	local tpService = cloneref(game:GetService('TeleportService'))
 	local networkClient = cloneref(game:GetService('NetworkClient'))
 	local ppService = cloneref(game:GetService('ProximityPromptService'))
+	local lightService = cloneref(game:GetService('Lighting'))
 
 	cmds.add('eject', choco.unload)
 
@@ -1516,6 +1658,45 @@ do -- script
 		end
 	end, { 'unautorj', 'noautorejoin', 'noautorj' })
 
+	cmds.add('serverhop', function()
+		local tried = {}
+		local function serverhop(pointer)
+			if not pointer then
+				ui.log('finding server...', 0)
+			end
+
+			local url = string.format('https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100%s', choco.game.id, pointer and '&cursor=' .. pointer or '')
+			local suc, res = pcall(game.HttpGet, game, url)
+			if not suc then
+				ui.log('could not find a server (1)', 1, choco.constants.colors.orange)
+				return
+			end
+
+			res = choco.coreUtils.decode(res)
+			if not res then
+				ui.log('could not find a server (2)', 1, choco.constants.colors.orange)
+				return
+			end
+
+			for _, v in next, res.data do
+				if v.playing >= v.maxPlayers or v.id == choco.game.job or table.find(tried, v.id) then continue end
+				table.insert(tried, v.id)
+
+				ui.log('found server!', 0, choco.constants.colors.green)
+				tpService:TeleportToPlaceInstance(choco.game.id, v.id, lplr)
+				return
+			end
+
+			if res.nextPageCursor then
+				serverhop(res.nextPageCursor)
+			else
+				ui.log('could not find a server (3)', 1, choco.constants.colors.orange)
+			end
+		end
+
+		serverhop()
+	end, { 'shop', 'sh' })
+
 	cmds.add('waypoints', funcs.toggleWaypointUi)
 
 	cmds.add('setwaypoint', function(...)
@@ -1530,15 +1711,15 @@ do -- script
 	cmds.add('unesp', funcs.stopESP, 'noesp')
 
 	cmds.add('esptogglehealth', function()
-		choco.temp.esphealth = not choco.temp.esphealth
+		temp.esphealth = not temp.esphealth
 	end)
 
 	cmds.add('esptoggledistance', function()
-		choco.temp.espdistance = not choco.temp.espdistance
+		temp.espdistance = not temp.espdistance
 	end)
 
 	cmds.add('esptoggleteam', function()
-		choco.temp.espteam = not choco.temp.espteam
+		temp.espteam = not temp.espteam
 	end)
 
 	cmds.add('fly', function(speed)
@@ -1712,7 +1893,7 @@ do -- script
 		end
 
 		temp.maxzoom = lplr.CameraMaxZoomDistance
-		lplr.CameraMaxZoomDistance = tonumber(distance) or temp.maxzoom
+		lplr.CameraMaxZoomDistance = utils.getNumber(distance) or temp.maxzoom
 	end)
 
 	cmds.add('minzoom', function(distance)
@@ -1725,7 +1906,7 @@ do -- script
 		end
 
 		temp.minzoom = lplr.CameraMaxZoomDistance
-		lplr.CameraMinZoomDistance = tonumber(distance) or temp.minzoom
+		lplr.CameraMinZoomDistance = utils.getNumber(distance) or temp.minzoom
 	end)
 
 	cmds.add('instantproximityprompts', function()
@@ -1742,6 +1923,228 @@ do -- script
 			temp.instapp = nil
 		end
 	end, { 'uninstantpp', 'uninstapp' })
+
+	cmds.add('dex', function()
+		local url = 'https://raw.githubusercontent.com/infyiff/backup/main/dex.lua'
+		local res, err = choco.coreUtils.execRaw(url)
+
+		if err then
+			ui.log(string.format('could not execute dex: ', res), 2, choco.constants.colors.red)
+		end
+	end)
+
+	cmds.add('remotespy', function()
+		local url = 'https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua'
+		local res, err = choco.coreUtils.execRaw(url)
+
+		if err then
+			ui.log(string.format('could not execute rspy: ', res), 2, choco.constants.colors.red)
+		end
+	end, 'rspy')
+
+	cmds.add('adonisbypass', function()
+		local url = 'https://raw.githubusercontent.com/Pixeluted/adoniscries/main/Source.lua'
+		local res, err = choco.coreUtils.execRaw(url)
+
+		if err then
+			ui.log(string.format('could not execute adonisbypass: ', res), 2, choco.constants.colors.red)
+		end
+	end)
+
+	cmds.add('antienvleak', function()
+		if not choco.coreUtils.getFunc('hookfunction') then return end
+		if not choco.coreUtils.getFunc('newcclosure') then return end
+
+		hookfunction(debug.info, newcclosure(function() end))
+	end)
+
+	cmds.add('f3x', function()
+		loadstring(game:GetObjects('rbxassetid://6695644299')[1].Source)()
+	end)
+
+	cmds.add('fieldofview', function(fov)
+		if not fov then
+			if temp.fov then
+				cam.FieldOfView = temp.fov
+			end
+
+			return
+		end
+
+		temp.fov = cam.FieldOfView
+		cam.FieldOfView = utils.getNumber(fov) or temp.fov
+	end, 'fov')
+
+	cmds.add('loopfieldofview', function(fov)
+		cmds.exec('unloopfieldofview')
+
+		if not utils.getNumber(fov) then return end
+
+		temp.loopfov = choco.connect(cam:GetPropertyChangedSignal('FieldOfView'), function()
+			cam.FieldOfView = fov
+		end)
+	end, { 'loopfov', 'lfov' })
+
+	cmds.add('unloopfieldofview', function()
+		if temp.loopfov then
+			temp.loopfov:Disconnect()
+			temp.loopfov = nil
+		end
+	end, { 'unloopfov', 'unlfov' })
+
+	cmds.add('rolewatch', function(groupId, ...)
+		local role = {...}
+		if not utils.getTable(role) then return end
+		if not utils.getNumber(groupId) then return end
+
+		choco.funcs.startRoleWatch(groupId, role)
+	end)
+
+	cmds.add('unrolewatch', choco.funcs.stopRoleWatch, 'norolewatch')
+
+	cmds.add('rolewatchleave', function()
+		temp.rolewatch.action = 'leave'
+	end)
+
+	cmds.add('rolewatchserverhop', function()
+		temp.rolewatch.action = 'hop'
+	end, 'rolewatchsh')
+
+	cmds.add('graptools', function()
+		local hum = utils.getHum()
+		if not hum then return end
+
+		for _, v in next, workspace:GetChildren() do
+			if not v:IsA('BackpackItem') or not v:FindFirstChild('Handle') then continue end
+			hum:EquipTool(v)
+		end
+	end)
+
+	cmds.add('antikick', function()
+		if not choco.coreUtils.getFunc('hookmetamethod') then return end
+		if not choco.coreUtils.getFunc('hookfunction') then return end
+		if not choco.coreUtils.getFunc('getnamecallmethod') then return end
+		if not choco.coreUtils.getFunc('newcclosure') then return end
+
+		hookfunction(lplr.Kick, newcclosure(function() end))
+
+		local oldNamecall
+		oldNamecall = hookmetamethod(game, '__namecall', newcclosure(function(self, ...)
+			if self == lplr and getnamecallmethod():lower() == 'kick' then
+				return
+			end
+
+			return oldNamecall(self, ...)
+		end))
+
+		ui.log('anti kick enabled', 0)
+	end, 'anticlientkick')
+
+	cmds.add('nofog', function()
+		lightService.FogEnd = 10e4
+
+		for _, v in next, lightService:GetChildren() do
+			if not v:IsA('Atmosphere') then continue end
+			v.Density = 0
+		end
+	end)
+
+	cmds.add('loopnofog', function()
+		cmds.exec('unloopnofog')
+
+		temp.nofog = choco.connect(runService.RenderStepped, function()
+			lightService.FogEnd = 10e4
+
+			for _, v in next, lightService:GetChildren() do
+				if not v:IsA('Atmosphere') then continue end
+				v.Density = 0
+			end
+		end)
+	end, 'lnofog')
+
+	cmds.add('unloopnofog', function()
+		if temp.nofog then
+			temp.nofog:Disconnect()
+			temp.nofog = nil
+		end
+	end, 'unlnofog')
+
+	cmds.add('fullbright', function()
+		lightService.Brightness = 2
+		lightService.ClockTime = 14
+		lightService.FogEnd = 100000
+		lightService.GlobalShadows = false
+		lightService.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
+	end, 'fb')
+
+	cmds.add('loopfullbright', function()
+		cmds.exec('unloopfullbright')
+
+		temp.fullbright = choco.connect(runService.RenderStepped, function()
+			lightService.Brightness = 2
+			lightService.ClockTime = 14
+			lightService.FogEnd = 100000
+			lightService.GlobalShadows = false
+			lightService.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
+		end)
+	end, { 'lfullbright', 'lfb' })
+
+	cmds.add('unloopfullbright', function()
+		if temp.fullbright then
+			temp.fullbright:Disconnect()
+			temp.fullbright = nil
+		end
+	end, { 'unlfullbright', 'unlfb' })
+
+	cmds.add('nobloom', function()
+		for _, v in next, lightService:GetChildren() do
+			if not v:IsA('BloomEffect') then continue end
+			v.Enabled = false
+		end
+	end)
+
+	cmds.add('loopnobloom', function()
+		cmds.exec('unloopnobloom')
+
+		temp.nobloom = choco.connect(runService.Heartbeat, function()
+			for _, v in next, lightService:GetChildren() do
+				if not v:IsA('BloomEffect') then continue end
+				v.Enabled = false
+			end
+		end)
+	end, 'lnobloom')
+
+	cmds.add('unloopnobloom', function()
+		if temp.nobloom then
+			temp.nobloom:Disconnect()
+			temp.nobloom = nil
+		end
+	end, 'unlnobloom')
+
+	cmds.add('noblur', function()
+		for _, v in next, lightService:GetChildren() do
+			if not v:IsA('BlurEffect') then continue end
+			v.Enabled = false
+		end
+	end)
+
+	cmds.add('loopnoblur', function()
+		cmds.exec('unloopnoblur')
+
+		temp.noblur = choco.connect(runService.Heartbeat, function()
+			for _, v in next, lightService:GetChildren() do
+				if not v:IsA('BlurEffect') then continue end
+				v.Enabled = false
+			end
+		end)
+	end, 'lnoblur')
+
+	cmds.add('unloopnoblur', function()
+		if temp.noblur then
+			temp.noblur:Disconnect()
+			temp.noblur = nil
+		end
+	end, 'unlnoblur')
 end
 
 do -- keybinds
