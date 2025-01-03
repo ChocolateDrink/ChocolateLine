@@ -197,7 +197,6 @@ do -- core store
 
 	choco.temp.flyspeed = 50
 	choco.temp.vflystabilized = false
-	choco.temp.vflytilt = 0
 	choco.temp.tpwalkspeed = 1.5
 
 	choco.temp.esphealth = true
