@@ -196,6 +196,8 @@ do -- core store
 	choco.constants.colors.green = Color3.new(0, 1, 0)
 
 	choco.temp.flyspeed = 50
+	choco.temp.vflystabilized = false
+	choco.temp.vflytilt = 0
 	choco.temp.tpwalkspeed = 1.5
 
 	choco.temp.esphealth = true
@@ -725,6 +727,8 @@ do -- cmd list
 	cmds.list['flyspeed [speed]'] = 'sets the fly speed to [speed]'
 	cmds.list['flyvelo / flyvelocity / velofly / velocityfly [speed?]'] = 'manipulates your velocity to let you fly'
 	cmds.list['vehiclefly / vfly [speed?]'] = 'lets you fly when sitting in a vehicle'
+	cmds.list['vflystabilize'] = 'stabilizes the vehicle'
+	cmds.list['vflyunstabilize'] = 'unstabilizes the vehicle'
 	cmds.list['directionalfly / dirfly [speed?]'] = 'flys in the direction of your camera (inserts a body mover)'
 	cmds.list['directionalcframefly / dircffly [speed?]'] = 'flys in the direction of your camera by setting your cframe'
 	cmds.list['unfly / nofly'] = 'disables fly'
@@ -1221,7 +1225,7 @@ do -- script funcs
 			local seat = hum.SeatPart
 			if not seat or not seat:IsA('VehicleSeat') then return root end
 
-			return seat.Parent and seat.Parent.PrimaryPart or root
+			return seat.Parent and seat.Parent.PrimaryPart or root, seat:IsA('VehicleSeat')
 		end
 
 		function choco.funcs.disableFly()
@@ -1307,7 +1311,15 @@ do -- script funcs
 				local moveDir = hum.MoveDirection
 
 				if vfly then
-					getMovePart().AssemblyLinearVelocity = Vector3.new(moveDir.X, verticle, moveDir.Z) * choco.temp.flyspeed + Vector3.new(0, 2.25, 0)
+					local part, isSeat = getMovePart()
+					part.AssemblyLinearVelocity = Vector3.new(moveDir.X, verticle, moveDir.Z) * choco.temp.flyspeed + Vector3.new(0, 2.25, 0)
+
+					if isSeat and choco.temp.vflystabilized then
+						local lookVec = cam.CFrame.LookVector
+
+						part.CFrame = CFrame.lookAt(Vector3.zero, Vector3.new(lookVec.X, 0, lookVec.Z))
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
 
 					choco.temp.vflydied = choco.temp.vflydied or choco.connect(hum.Died, function()
 						cmds.exec('unfly')
@@ -1746,6 +1758,14 @@ do -- script
 
 		funcs.startFlyVelocity(true)
 	end, 'vfly')
+
+	cmds.add('vflystabilize', function()
+		temp.vflystabilized = true
+	end)
+
+	cmds.add('vflyunstabilize', function()
+		temp.vflystabilized = false
+	end)
 
 	cmds.add('directionalfly', function(speed)
 		speed = utils.getNumber(speed)
