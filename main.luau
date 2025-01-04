@@ -7,7 +7,7 @@ if getgenv().choco then
 end
 
 local startLoad = tick()
-local scriptVer = 2
+local scriptVer = 3
 
 local cloneref = cloneref or function(i) return i end
 local httpService = cloneref(game:GetService('HttpService'))
@@ -198,6 +198,7 @@ do -- core store
 	choco.temp.flyspeed = 50
 	choco.temp.vflystabilized = false
 	choco.temp.tpwalkspeed = 1.5
+	choco.temp.freecamspeed = 50
 
 	choco.temp.esphealth = true
 	choco.temp.espdistance = true
@@ -718,6 +719,7 @@ do -- cmd list
 	cmds.list['unautorejoin / unautorj / noautorejoin / noautorj'] = 'disables autorejoin'
 	cmds.list['waypoints'] = 'shows all the saved waypoints'
 	cmds.list['setwaypoint / addwaypoint / swp [name]'] = 'sets a waypoint with the name [name]'
+	cmds.list['setwaypointcam / addwaypointcam / swpc [name]'] = 'sets a waypoint and your cameras position'
 	cmds.list['esp'] = 'lets you see people through walls'
 	cmds.list['unesp / noesp'] = 'disables esp'
 	cmds.list['esptogglehealth'] = 'toggles if esp should display the persons health'
@@ -760,6 +762,7 @@ do -- cmd list
 	cmds.list['rolewatchleave'] = 'sets the role watch action to leave the game'
 	cmds.list['rolewatchserverhop / rolewatchsh'] = 'sets the role watch action to server hop'
 	cmds.list['graptools'] = 'picks up all the tools dropped on the map'
+	cmds.list['graptoolstp'] = 'teleports you to all dropped tools to pick them up'
 	cmds.list['antikick'] = 'prevents local scripts from kicking you'
 	cmds.list['nofog'] = 'removes fog'
 	cmds.list['loopnofog / lnofog'] = 'loop removes fog'
@@ -773,6 +776,22 @@ do -- cmd list
 	cmds.list['noblur'] = 'removes all blur effects'
 	cmds.list['loopnoblur / lnoblur'] = 'loop removes all blur effects'
 	cmds.list['unloopnoblur / unlnoblur'] = 'disables loopnoblur'
+	cmds.list['loopbring [player] [distance?]'] = 'loop brings [player] [distance?] studs away from you'
+	cmds.list['freecam / fc [speed?]'] = 'lets your camera fly around freely'
+	cmds.list['unfreecam / unfc'] = 'disables freecam'
+	cmds.list['freecamspeed / fcspeed [speed]'] = 'sets the speed of freecam to [speed]'
+	cmds.list['copyposition / copypos'] = 'copies the position of your root part'
+	cmds.list['copyvector / copyvec'] = 'copies the position of your root wrapped in a Vector3 constructor'
+	cmds.list['copycamposition / copycpos'] = 'copies the position of your cameara'
+	cmds.list['teleporttocam / gotocam / tocam'] = 'teleports to your camera'
+	cmds.list['fling'] = 'lets you fling people'
+	cmds.list['unfling'] = 'disables fling'
+	cmds.list['antifling'] = 'prevents people from flinging you'
+	cmds.list['unantifling'] = 'disables antifling'
+	cmds.list['antiragdoll'] = 'prevents you from being ragdolled'
+	cmds.list['unantiragdoll'] = 'disables antiragdoll'
+	cmds.list['noclip'] = 'lets you go through walls'
+	cmds.list['unnoclip / nonoclip / clip'] = 'disables noclip'
 end
 
 do -- script utils
@@ -1575,6 +1594,237 @@ do -- script funcs
 			ui.log('role watch has stopped', 0)
 		end
 	end
+
+	do -- freecam
+		local spring = {}
+		local camState = {}
+		local input = {}
+
+		local CONTEXT_HIGH = Enum.ContextActionPriority.High.Value
+
+		do -- spring
+			spring.__index = spring
+
+			function spring.new(frequency, position)
+				local self = setmetatable({}, spring)
+
+				self.f = frequency
+				self.p = position
+				self.v = position * 0
+
+				return self
+			end
+
+			function spring:Update(delta, goal)
+				local f = self.f * 2 * math.pi
+				local p0 = self.p
+				local v0 = self.v
+
+				local offset = goal - p0
+				local decay = math.exp(-f * delta)
+
+				local p1 = goal + (v0 * delta - offset * (f * delta + 1)) * decay
+				local v1 = (f * delta * (offset * f - v0) + v0) * decay
+
+				self.p = p1
+				self.v = v1
+
+				return p1
+			end
+
+			function spring:Reset(position)
+				self.p = position
+				self.v = position * 0
+			end
+		end
+
+		do -- cam state
+			camState.__index = camState
+
+			function camState.new()
+				local self = setmetatable({}, camState)
+
+				self._oldCameraType = cam.CameraType
+				cam.CameraType = Enum.CameraType.Custom
+
+				self._oldCameraCFrame = cam.CFrame
+				self._oldCameraFocus = cam.Focus
+
+				self._oldMouseIconEnabled = inputService.MouseIconEnabled
+				inputService.MouseIconEnabled = true
+
+				self._oldMouseBehavior = inputService.MouseBehavior
+				inputService.MouseBehavior = Enum.MouseBehavior.Default
+
+				self._done = true
+
+				return self
+			end
+
+			function camState:Destroy()
+				if not self._done then
+					return
+				end
+
+				cam.CameraType = self._oldCameraType
+				self._oldCameraType = nil
+
+				cam.CFrame = self._oldCameraCFrame
+				self._oldCameraCFrame = nil
+
+				cam.Focus = self._oldCameraFocus
+				self._oldCameraFocus = nil
+
+				inputService.MouseIconEnabled = self._oldMouseIconEnabled
+				self._oldMouseIconEnabled = nil
+
+				inputService.MouseBehavior = self._oldMouseBehavior
+				self._oldMouseBehavior = nil
+
+				self._done = false
+			end
+		end
+
+		do -- input
+			local mouse = {Delta = Vector2.new()}
+			local keyboard = { W = 0, A = 0, S = 0, D = 0, E = 0, Q = 0, Up = 0, Down = 0, LeftShift = 0 }
+
+			local PAN_MOUSE_SPEED = Vector2.new(3, 3) * (math.pi / 64)
+			local NAV_ADJ_SPEED = 0.75
+
+			local NAV_SPEED = 1
+
+			function input.vel(delta)
+				NAV_SPEED = math.clamp(NAV_SPEED + delta * (keyboard.Up - keyboard.Down) * NAV_ADJ_SPEED, 0.01, 4)
+
+				local localKeyboard = Vector3.new(keyboard.D - keyboard.A, keyboard.E - keyboard.Q, keyboard.S - keyboard.W) * (Vector3.one * (choco.temp.freecamspeed / 20))
+				local shifting = inputService:IsKeyDown(Enum.KeyCode.LeftShift)
+
+				return (localKeyboard) * (NAV_SPEED * (shifting and 0.2 or 1))
+			end
+
+			function input.pan()
+				local mousePan = mouse.Delta * PAN_MOUSE_SPEED
+				mouse.Delta = Vector2.new()
+
+				return mousePan
+			end
+
+			local function _keypress(_, state, object)
+				keyboard[object.KeyCode.Name] = state == Enum.UserInputState.Begin and 1 or 0
+				return Enum.ContextActionResult.Sink
+			end
+
+			local function _mousePan(_, _, object)
+				local delta = object.Delta
+				mouse.Delta = Vector2.new(-delta.y, -delta.x)
+				return Enum.ContextActionResult.Sink
+			end
+
+			local function _zero(tab)
+				for k, v in tab do
+					tab[k] = v * 0
+				end
+			end
+
+			function input.start()
+				actionService:BindActionAtPriority('fckeyboard', _keypress, false, CONTEXT_HIGH, Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D, Enum.KeyCode.E, Enum.KeyCode.Q, Enum.KeyCode.Up, Enum.KeyCode.Down)
+				actionService:BindActionAtPriority('fcmouse', _mousePan, false, CONTEXT_HIGH, Enum.UserInputType.MouseMovement)
+			end
+
+			function input.stop()
+				NAV_SPEED = 1
+
+				_zero(mouse)
+				_zero(keyboard)
+
+				actionService:UnbindAction('fckeyboard')
+				actionService:UnbindAction('fcmouse')
+			end
+		end
+
+		local cameraFov
+		local function getFocusDistance(cframe)
+			local znear = 0.1
+			local viewport = cam.ViewportSize
+			local projy = 2 * math.tan(cameraFov / 2)
+			local projx = viewport.X / viewport.Y * projy
+			local fx = cframe.RightVector
+			local fy = cframe.UpVector
+			local fz = cframe.LookVector
+
+			local minVect = Vector3.zero
+			local minDist = 512
+
+			for x = 0, 1, 0.5 do
+				for y = 0, 1, 0.5 do
+					local cx = (x - 0.5) * projx
+					local cy = (y - 0.5) * projy
+					local offset = fx * cx - fy * cy + fz
+					local origin = cframe.Position + offset * znear
+					local res = workspace:Raycast(origin, offset.unit * minDist)
+					res = res and res.Position or Vector3.zero
+
+					local dist = (res - origin).magnitude
+					if minDist > dist then
+						minDist = dist
+						minVect = offset.unit
+					end
+				end
+			end
+
+			return fz:Dot(minVect) * minDist
+		end
+
+		local cameraPos = Vector3.zero
+		local cameraRot = Vector2.new()
+		local velSpring = spring.new(5, Vector3.zero)
+		local panSpring = spring.new(5, Vector2.new())
+
+		function choco.funcs.startFreecam()
+			choco.funcs.stopFreecam()
+
+			local cameraCFrame = cam.CFrame
+			local pitch, yaw = cameraCFrame:ToEulerAnglesYXZ()
+
+			cameraRot = Vector2.new(pitch, yaw)
+			cameraPos = cameraCFrame.Position
+			cameraFov = cam.FieldOfView
+
+			velSpring:Reset(Vector3.zero)
+			panSpring:Reset(Vector2.new())
+
+			camState.new()
+
+			choco.temp.freecam = choco.connect(runService.RenderStepped, function(dt)
+				local vel = velSpring:Update(dt, input.vel(dt))
+				local pan = panSpring:Update(dt, input.pan())
+				local zoomFactor = math.sqrt(math.tan(math.rad(70 / 2)) / math.tan(math.rad(cameraFov / 2)))
+
+				cameraRot += pan * Vector2.new(0.75, 1) * 8 * (dt / zoomFactor)
+				cameraRot = Vector2.new(math.clamp(cameraRot.X, -math.rad(90), math.rad(90)), cameraRot.Y % (2 * math.pi))
+
+				local newCFrame = CFrame.new(cameraPos) * CFrame.fromOrientation(cameraRot.X, cameraRot.Y, 0) * CFrame.new(vel * Vector3.one * 64 * dt)
+				cameraPos = newCFrame.Position
+
+				cam.CFrame = newCFrame
+				cam.Focus = newCFrame * CFrame.new(0, 0, -getFocusDistance(newCFrame))
+			end)
+
+			input.start()
+		end
+
+		function choco.funcs.stopFreecam()
+			input.stop()
+
+			if choco.temp.freecam then
+				choco.temp.freecam:Disconnect()
+				choco.temp.freecam = nil
+			end
+
+			camState:Destroy()
+		end
+	end
 end
 
 do -- script
@@ -1716,6 +1966,13 @@ do -- script
 
 		funcs.addWaypoint(name, nil, true)
 	end, { 'addwaypoint', 'swp' })
+
+	cmds.add('setwaypointcam', function(...)
+		local name = {...}
+		if not utils.getTable(name) then return end
+	
+		funcs.addWaypoint(name, cam.CFrame, true)
+	end, { 'addwaypointcam', 'swpc' })
 
 	cmds.add('esp', funcs.startESP)
 
@@ -2039,6 +2296,19 @@ do -- script
 		end
 	end)
 
+	cmds.add('graptoolstp', function()
+		local root, hum = utils.getBoth()
+
+		for _, v in next, workspace:GetChildren() do
+			if not root or not hum then break end
+			if not v:IsA('BackpackItem') or not v:FindFirstChild('Handle') then continue end
+
+			root.CFrame = v.Handle.CFrame
+			hum:EquipTool(v)
+			task.wait()
+		end
+	end)
+
 	cmds.add('antikick', function()
 		if not choco.coreUtils.getFunc('hookmetamethod') then return end
 		if not choco.coreUtils.getFunc('hookfunction') then return end
@@ -2164,6 +2434,215 @@ do -- script
 			temp.noblur = nil
 		end
 	end, 'unlnoblur')
+
+	cmds.add('loopbring', function(player, distance)
+		cmds.exec('unloopbring')
+
+		player = utils.getPlayer(player)
+		if not player then return end
+
+		temp.loopbring = true
+
+		if type(player) == 'table' then
+			while temp.loopbring do
+				local localRoot = utils.getRoot()
+				if not localRoot then task.wait() continue end
+
+				player = utils.getPlayer('all')
+				if not utils.getTable(player) then task.wait() continue end
+
+				for _, v in next, player do
+					local otherRoot = v.Character and v.Character:FindFirstChild('HumanoidRootPart')
+					if not otherRoot then continue end
+
+					otherRoot.CFrame = localRoot.CFrame * CFrame.new(0, 0, tonumber(distance) and -distance or -5)
+					otherRoot.AssemblyLinearVelocity = Vector3.zero
+					otherRoot.AssemblyAngularVelocity = Vector3.zero
+				end
+
+				task.wait()
+			end
+
+			return
+		end
+
+		while temp.loopbring do
+			local localRoot = utils.getRoot()
+			if not localRoot then task.wait() continue end
+
+			local otherRoot = player.Character and player.Character:FindFirstChild('HumanoidRootPart')
+			if not otherRoot then continue end
+
+			otherRoot.CFrame = localRoot.CFrame * CFrame.new(0, 0, tonumber(distance) and -distance or -5)
+			otherRoot.AssemblyLinearVelocity = Vector3.zero
+			otherRoot.AssemblyAngularVelocity = Vector3.zero
+
+			task.wait()
+		end
+	end)
+
+	cmds.add('unloopbring', function()
+		temp.loopbring = false
+	end)
+
+	cmds.add('freecam', function(speed)
+		cmds.exec('unfreecam')
+
+		temp.freecamspeed = utils.getNumber(speed) or 50
+
+		funcs.startFreecam()
+	end, 'fc')
+
+	cmds.add('unfreecam', funcs.stopFreecam, 'unfc')
+
+	cmds.add('freecamspeed', function(speed)
+		temp.freecamspeed = utils.getNumber(speed) or 50
+	end, 'fcspeed')
+
+	cmds.add('copyposition', function()
+		local root = utils.getRoot()
+		if not root then return end
+
+		if not choco.coreUtils.getFunc('setclipboard') then return end
+
+		local postion = root.CFrame.Position
+		setclipboard(string.format('%s, %s, %s', math.round(postion.X), math.round(postion.Y), math.round(postion.Z)))
+
+		ui.log('postion copied to clipboard')
+	end, 'copypos')
+
+	cmds.add('copyvector', function()
+		local root = utils.getRoot()
+		if not root then return end
+
+		if not choco.coreUtils.getFunc('setclipboard') then return end
+
+		local postion = root.CFrame.Position
+		setclipboard(string.format('Vector3.new(%s, %s, %s)', math.round(postion.X), math.round(postion.Y), math.round(postion.Z)))
+
+		ui.log('postion copied to clipboard')
+	end, 'copyvec')
+
+	cmds.add('copycamposition', function()
+		if not cam then return end
+
+		if not choco.coreUtils.getFunc('setclipboard') then return end
+
+		local postion = cam.CFrame.Position
+		setclipboard(string.format('%s, %s, %s', math.round(postion.X), math.round(postion.Y), math.round(postion.Z)))
+
+		ui.log('postion copied to clipboard')
+	end, 'copycpos')
+
+	cmds.add('teleporttocam', function()
+		local root = utils.getRoot()
+		if not root then return end
+
+		root.CFrame = cam.CFrame
+	end, { 'gotocam', 'tocam' })
+
+	cmds.add('fling', function()
+		cmds.exec('unfling')
+
+		temp.fling = choco.connect(runService.Heartbeat, function()
+			local root = utils.getRoot()
+			if not root then return end
+
+			local preVelo = root.AssemblyLinearVelocity
+			local factor = 0.1
+
+			root.Velocity = (preVelo * 10000) + (Vector3.yAxis * 10000)
+			runService.RenderStepped:Wait()
+
+			root.AssemblyLinearVelocity = preVelo
+			runService.Stepped:Wait()
+
+			root.AssemblyLinearVelocity = preVelo + Vector3.new(0, factor, 0)
+			factor *= -1
+		end)
+	end)
+
+	cmds.add('unfling', function()
+		if temp.fling then
+			temp.fling:Disconnect()
+			temp.fling = nil
+		end
+	end)
+
+	cmds.add('antifling', function()
+		cmds.exec('unantifling')
+
+		temp.antifling = choco.connect(runService.Heartbeat, function()
+			for _, v in next, players:GetPlayers() do
+				if v == lplr or not v.Character then continue end
+
+				for _, v2 in next, v.Character:GetDescendants() do
+					if not v2:IsA('BasePart') or not v2.CanCollide then continue end
+					v2.CanCollide = false
+				end
+			end
+		end)
+	end)
+
+	cmds.add('unantifling', function()
+		if temp.antifling then
+			temp.antifling:Disconnect()
+			temp.antifling = nil
+		end
+	end)
+
+	cmds.add('antiragdoll', function()
+		cmds.exec('unantiragdoll')
+
+		local hum = utils.getHum()
+		if not hum then return end
+
+		hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+
+		temp.antiragdoll = choco.connect(lplr.CharacterAdded, function()
+			task.wait()
+
+			local newHum = utils.getHum()
+			if not newHum then return end
+
+			newHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			newHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+		end)
+	end)
+
+	cmds.add('unantiragdoll', function()
+		if temp.antiragdoll then
+			temp.antiragdoll:Disconnect()
+			temp.antiragdoll = nil
+		end
+
+		local hum = utils.getHum()
+		if not hum then return end
+
+		hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+	end)
+
+	cmds.add('noclip', function()
+		cmds.exec('unnoclip')
+
+		temp.noclip = choco.connect(runService.Heartbeat, function()
+			local parts = lplr.Character and lplr.Character:GetDescendants() or {}
+			if not utils.getTable(parts) then return end
+
+			for _, v in next, parts do
+				if not v:IsA('BasePart') or not v.CanCollide then continue end
+				v.CanCollide = false
+			end
+		end)
+	end)
+
+	cmds.add('unnoclip', function()
+		if temp.noclip then
+			temp.noclip:Disconnect()
+			temp.noclip = nil
+		end
+	end, { 'nonoclip', 'clip' })
 end
 
 do -- keybinds
