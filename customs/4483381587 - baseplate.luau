@@ -1,5 +1,9 @@
 local module = {}
 
+function module.onLoad()
+	print('on load!')
+end
+
 function module.test1()
 	return print('test 1')
 end
