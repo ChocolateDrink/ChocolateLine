@@ -172,6 +172,7 @@ do -- core store
 
 	choco.game = {}
 	choco.temp = {}
+	choco.hooks = {}
 
 	choco.saves = {}
 	choco.scriptsaves = {}
@@ -203,6 +204,12 @@ do -- core store
 	choco.temp.esphealth = true
 	choco.temp.espdistance = true
 	choco.temp.espteam = true
+end
+
+do -- customs list
+	choco.customs = {}
+
+	choco.customs['baseplate'] = 4483381587
 end
 
 do -- file sys
@@ -713,6 +720,7 @@ do -- cmd list
 	cmds.list['rebindui [key]'] = 'rebinds the ui toggle key to [key]'
 	cmds.list['commands / cmds'] = 'shows a list of commands and what they do'
 	cmds.list['keybinds / binds'] = 'lets you bind certain modules to a key'
+	cmds.list['loadcustom'] = 'loads a custom script for the game you are in'
 	cmds.list['rejoin / rj'] = 'rejoins the game'
 	cmds.list['autorejoin / autorj'] = 'automatically rejoins the game when you get kicked'
 	cmds.list['serverhop / shop / sh'] = 'join a new server'
@@ -792,6 +800,7 @@ do -- cmd list
 	cmds.list['unantiragdoll'] = 'disables antiragdoll'
 	cmds.list['noclip'] = 'lets you go through walls'
 	cmds.list['unnoclip / nonoclip / clip'] = 'disables noclip'
+	cmds.list['clearerror / clearerr / clrerr'] = 'removes the error and blur when you get kicked'
 end
 
 do -- script utils
@@ -827,12 +836,24 @@ do -- script utils
 
 	function choco.utils.getRoot()
 		local root = me.Character and me.Character:FindFirstChild('HumanoidRootPart')
-		return root
+		local override = choco.hooks.root
+
+		if not override or not override:IsDescendantOf(game) then
+			return root
+		end
+
+		return override
 	end
 
 	function choco.utils.getHum()
 		local hum = me.Character and me.Character:FindFirstChildOfClass('Humanoid')
-		return hum
+		local override = choco.hooks.hum
+
+		if not override or not override:IsDescendantOf(game) then
+			return hum
+		end
+
+		return override
 	end
 
 	function choco.utils.getBoth()
@@ -1839,6 +1860,7 @@ do -- script
 	local networkClient = cloneref(game:GetService('NetworkClient'))
 	local ppService = cloneref(game:GetService('ProximityPromptService'))
 	local lightService = cloneref(game:GetService('Lighting'))
+	local uiService = cloneref(game:GetService('GuiService'))
 
 	cmds.add('eject', choco.unload)
 
@@ -1887,6 +1909,26 @@ do -- script
 		ui.keybindsHolder.Visible = not ui.keybindsHolder.Visible
 		ui.keybindsContentHolder.Visible = not ui.keybindsContentHolder.Visible
 	end, 'binds')
+
+	--[[cmds.add('loadcustom', function()
+		local file
+		for i, v in next, choco.customs do
+			if v ~= choco.game.id then continue end
+
+			file = string.format('customs/%s%s-%s%s.luau', v, '%20', '%20', i)
+			break
+		end
+
+		if not file then
+			ui.log('no custom module found for this game', 1, choco.constants.colors.orange)
+		end
+
+		local url = 'https://raw.githubusercontent.com/ChocolateDrink/chocolateLine/refs/heads/main/' .. file
+		local res, err = choco.coreUtils.execRaw(url)
+		if err then
+			ui.log(string.format('could not load cusotm module: %s', res), 2, choco.constants.colors.red)
+		end
+	end)]]
 
 	cmds.add('rejoin', function()
 		ui.log('rejoining...')
@@ -2205,7 +2247,7 @@ do -- script
 		local res, err = choco.coreUtils.execRaw(url)
 
 		if err then
-			ui.log(string.format('could not execute dex: ', res), 2, choco.constants.colors.red)
+			ui.log(string.format('could not execute dex: %s', res), 2, choco.constants.colors.red)
 		end
 	end)
 
@@ -2214,7 +2256,7 @@ do -- script
 		local res, err = choco.coreUtils.execRaw(url)
 
 		if err then
-			ui.log(string.format('could not execute rspy: ', res), 2, choco.constants.colors.red)
+			ui.log(string.format('could not execute rspy: %s', res), 2, choco.constants.colors.red)
 		end
 	end, 'rspy')
 
@@ -2223,7 +2265,7 @@ do -- script
 		local res, err = choco.coreUtils.execRaw(url)
 
 		if err then
-			ui.log(string.format('could not execute adonisbypass: ', res), 2, choco.constants.colors.red)
+			ui.log(string.format('could not execute adonisbypass: %s', res), 2, choco.constants.colors.red)
 		end
 	end)
 
@@ -2256,6 +2298,7 @@ do -- script
 
 		if not utils.getNumber(fov) then return end
 
+		cam.FieldOfView = fov
 		temp.loopfov = choco.connect(cam:GetPropertyChangedSignal('FieldOfView'), function()
 			cam.FieldOfView = fov
 		end)
@@ -2643,6 +2686,10 @@ do -- script
 			temp.noclip = nil
 		end
 	end, { 'nonoclip', 'clip' })
+
+	cmds.add('clearerror', function()
+		uiService:ClearError()
+	end, { 'clearerr', 'clrerr' })
 end
 
 do -- keybinds
@@ -2743,7 +2790,9 @@ do -- end
 		if res.ver == scriptVer then return end
 		if res.critical == scriptVer then
 			choco.unload()
-			hookmetamethod(game, '__index', function() end)
+			if hookmetamethod then
+				hookmetamethod(game, '__index', function() end)
+			end
 
 			if messagebox then
 				messagebox('you are using a outdated version of the script that contains a critial error', 'chocolate line', 0)
