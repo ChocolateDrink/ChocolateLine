@@ -7,7 +7,7 @@ if getgenv().choco then
 end
 
 local startLoad = tick()
-local scriptVer = 3
+local scriptVer = 4
 
 local cloneref = cloneref or function(i) return i end
 local httpService = cloneref(game:GetService('HttpService'))
@@ -204,12 +204,8 @@ do -- core store
 	choco.temp.esphealth = true
 	choco.temp.espdistance = true
 	choco.temp.espteam = true
-end
 
-do -- customs list
-	choco.customs = {}
-
-	choco.customs['baseplate'] = 4483381587
+	choco.temp.bypassedwords = {}
 end
 
 do -- file sys
@@ -720,7 +716,6 @@ do -- cmd list
 	cmds.list['rebindui [key]'] = 'rebinds the ui toggle key to [key]'
 	cmds.list['commands / cmds'] = 'shows a list of commands and what they do'
 	cmds.list['keybinds / binds'] = 'lets you bind certain modules to a key'
-	cmds.list['loadcustom'] = 'loads a custom script for the game you are in'
 	cmds.list['rejoin / rj'] = 'rejoins the game'
 	cmds.list['autorejoin / autorj'] = 'automatically rejoins the game when you get kicked'
 	cmds.list['serverhop / shop / sh'] = 'join a new server'
@@ -1861,6 +1856,8 @@ do -- script
 	local ppService = cloneref(game:GetService('ProximityPromptService'))
 	local lightService = cloneref(game:GetService('Lighting'))
 	local uiService = cloneref(game:GetService('GuiService'))
+	local textChat = cloneref(game:GetService('TextChatService'))
+	local repoStore = cloneref(game:GetService('ReplicatedStorage'))
 
 	cmds.add('eject', choco.unload)
 
@@ -1909,26 +1906,6 @@ do -- script
 		ui.keybindsHolder.Visible = not ui.keybindsHolder.Visible
 		ui.keybindsContentHolder.Visible = not ui.keybindsContentHolder.Visible
 	end, 'binds')
-
-	--[[cmds.add('loadcustom', function()
-		local file
-		for i, v in next, choco.customs do
-			if v ~= choco.game.id then continue end
-
-			file = string.format('customs/%s%s-%s%s.luau', v, '%20', '%20', i)
-			break
-		end
-
-		if not file then
-			ui.log('no custom module found for this game', 1, choco.constants.colors.orange)
-		end
-
-		local url = 'https://raw.githubusercontent.com/ChocolateDrink/chocolateLine/refs/heads/main/' .. file
-		local res, err = choco.coreUtils.execRaw(url)
-		if err then
-			ui.log(string.format('could not load cusotm module: %s', res), 2, choco.constants.colors.red)
-		end
-	end)]]
 
 	cmds.add('rejoin', function()
 		ui.log('rejoining...')
@@ -2690,6 +2667,49 @@ do -- script
 	cmds.add('clearerror', function()
 		uiService:ClearError()
 	end, { 'clearerr', 'clrerr' })
+
+	cmds.add('chatbypass', function(...)
+		if not utils.getTable(temp.bypassedwords) then
+			local url = 'https://raw.githubusercontent.com/ChocolateDrink/ChocolateLine/refs/heads/main/store/words.json'
+			local res, err = choco.coreUtils.execRaw(url, true)
+			if err or not res then
+				ui.log(string.format('failed to get bypass list: %s', err), 2, choco.constants.colors.red)
+				return
+			end
+
+			res = choco.coreUtils.decode(res)
+			if not res then
+				ui.log('failed to decode bypass list', 2, choco.constants.colors.red)
+				return
+			end
+
+			for i, v in next, res do
+				temp.bypassedwords[i] = v:gsub('\\(%d%d%d)', string.char)
+			end
+		end
+
+		if not temp.bypasssent then
+			ui.log('remember to set your language to Қазақ Тілі', 1, choco.constants.colors.orange)
+			temp.bypasssent = true
+		end
+
+		local bypassed = table.concat({...}, ' ')
+		for i, v in pairs(temp.bypassedwords) do
+			bypassed = bypassed:gsub(i, v)
+		end
+
+		if textChat.ChatVersion == Enum.ChatVersion.TextChatService then
+			textChat.ChatInputBarConfiguration.TargetTextChannel:SendAsync(bypassed)
+		else
+			local events = repoStore:FindFirstChild('DefaultChatSystemChatEvents')
+			if not events then return end
+
+			local remote = events:FindFirstChild('SayMessageRequest')
+			if not remote then return end
+
+			remote:FireServer(bypassed, 'All')
+		end
+	end)
 end
 
 do -- keybinds
