@@ -7,7 +7,7 @@ if getgenv().choco then
 end
 
 local startLoad = tick()
-local scriptVer = 6
+local scriptVer = 6	
 
 local cloneref = cloneref or function(i) return i end
 local httpService = cloneref(game:GetService('HttpService'))
@@ -758,6 +758,8 @@ do -- cmd list
 	cmds.list['uninstantproximityprompts / uninstantpp / uninstapp'] = 'disables instantproximityprompts'
 	cmds.list['dex'] = 'executes dex explorer'
 	cmds.list['remotespy / rspy'] = 'executes simple spy'
+	cmds.list['adonisbypass'] = 'bypasses adonis anticheat'
+	cmds.list['audiologger'] = 'executes auto logger'
 	cmds.list['antienvleak'] = 'makes your executor not leak its environment'
 	cmds.list['f3x'] = 'gives you f3x building tools'
 	cmds.list['fieldofview / fov [fov]'] = 'sets your field of view to [fov]'
@@ -2249,6 +2251,15 @@ do -- script
 
 		if err then
 			ui.log(string.format('could not execute adonisbypass: %s', res), 2, choco.constants.colors.red)
+		end
+	end)
+
+	cmds.add('audiologger', function()
+		local url = 'https://raw.githubusercontent.com/infyiff/backup/main/audiologger.lua'
+		local res, err = choco.coreUtils.execRaw(url)
+
+		if err then
+			ui.log(string.format('could not execute audiologger: %s', res), 2, choco.constants.colors.red)
 		end
 	end)
 
