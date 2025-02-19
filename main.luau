@@ -7,7 +7,7 @@ if getgenv().choco then
 end
 
 local startLoad = tick()
-local scriptVer = 5
+local scriptVer = 6
 
 local cloneref = cloneref or function(i) return i end
 local httpService = cloneref(game:GetService('HttpService'))
@@ -769,7 +769,8 @@ do -- cmd list
 	cmds.list['rolewatchserverhop / rolewatchsh'] = 'sets the role watch action to server hop'
 	cmds.list['graptools'] = 'picks up all the tools dropped on the map'
 	cmds.list['graptoolstp'] = 'teleports you to all dropped tools to pick them up'
-	cmds.list['antikick'] = 'prevents local scripts from kicking you'
+	cmds.list['antikick / anticlientkick'] = 'prevents local scripts from kicking you'
+	cmds.list['unantikick / unanticlientkick'] = 'disables antikick'
 	cmds.list['nofog'] = 'removes fog'
 	cmds.list['loopnofog / lnofog'] = 'loop removes fog'
 	cmds.list['unloopnofog / unlnofog'] = 'disables loopnofog'
@@ -799,7 +800,9 @@ do -- cmd list
 	cmds.list['noclip'] = 'lets you go through walls'
 	cmds.list['unnoclip / nonoclip / clip'] = 'disables noclip'
 	cmds.list['clearerror / clearerr / clrerr'] = 'removes the error and blur when you get kicked'
-	cmds.list['chatbypass [text]'] = 'attempts to bypasses the chat filter'
+	cmds.list['chatbypass / bypasschat [text]'] = 'attempts to bypasses the chat filter'
+	cmds.list['autochatbypass / autobypasschat'] = 'automatically bypasses the chat (only workds in legacy chat)'
+	cmds.list['unautochatbypass / unautobypasschat'] = 'disables autochatbypass'
 end
 
 do -- script utils
@@ -1909,7 +1912,7 @@ do -- script
 	end, 'binds')
 
 	cmds.add('rejoin', function(silent)
-		if not silent then
+		if silent ~= '1dd0;' then
 			ui.log('rejoining...')
 		end
 
@@ -2338,19 +2341,35 @@ do -- script
 		if not choco.coreUtils.getFunc('getnamecallmethod') then return end
 		if not choco.coreUtils.getFunc('newcclosure') then return end
 
-		hookfunction(lplr.Kick, newcclosure(function() end))
+		temp.oldkick = hookfunction(lplr.Kick, newcclosure(function() end))
 
-		local oldNamecall
-		oldNamecall = hookmetamethod(game, '__namecall', newcclosure(function(self, ...)
+		temp.oldkicknamecall = hookmetamethod(game, '__namecall', newcclosure(function(self, ...)
 			if self == lplr and getnamecallmethod():lower() == 'kick' then
 				return
 			end
 
-			return oldNamecall(self, ...)
+			return temp.oldkicknamecall(self, ...)
 		end))
 
-		ui.log('anti kick enabled', 0)
+		ui.log('anti kick enabled')
 	end, 'anticlientkick')
+
+	cmds.add('unantikick', function()
+		if not choco.coreUtils.getFunc('hookmetamethod') then return end
+		if not choco.coreUtils.getFunc('hookfunction') then return end
+
+		if temp.oldkick then
+			hookfunction(lplr.Kick, temp.oldkick)
+			temp.oldkick = nil
+		end
+
+		if temp.oldkicknamecall then
+			hookmetamethod(game, '__namecall', temp.oldkicknamecall)
+			temp.oldkicknamecall = nil
+		end
+
+		ui.log('anti kick disabled')
+	end, 'unanticlientkick')
 
 	cmds.add('nofog', function()
 		lightService.FogEnd = 10e4
@@ -2714,7 +2733,59 @@ do -- script
 
 			remote:FireServer(bypassed, 'All')
 		end
-	end)
+	end, 'bypasschat')
+
+	cmds.add('autochatbypass', function()
+		if not utils.getTable(temp.bypassedwords) then
+			local url = 'https://raw.githubusercontent.com/ChocolateDrink/ChocolateLine/refs/heads/main/store/words.json'
+			local res, err = choco.coreUtils.execRaw(url, true)
+			if err or not res then
+				ui.log(string.format('failed to get bypass list: %s', err), 2, choco.constants.colors.red)
+				return
+			end
+
+			res = choco.coreUtils.decode(res)
+			if not res then
+				ui.log('failed to decode bypass list', 2, choco.constants.colors.red)
+				return
+			end
+
+			for i, v in next, res do
+				temp.bypassedwords[i] = v:gsub('\\(%d%d%d)', string.char)
+			end
+		end
+
+		if not temp.bypasssent then
+			ui.log('remember to set your language to Қазақ Тілі', 1, choco.constants.colors.orange)
+			temp.bypasssent = true
+		end
+
+		temp.bypassnamecall = hookmetamethod(game, '__namecall', newcclosure(function(self, ...)
+			local args = {...}
+			if self.Name == 'SayMessageRequest' and getnamecallmethod():lower() == 'fireserver' then
+				bypassed = args[1]
+				for i, v in pairs(temp.bypassedwords) do
+					bypassed = bypassed:gsub(i, v)
+				end
+
+				args[1] = bypassed
+				return temp.bypassnamecall(self, unpack(args))
+			end
+
+			return temp.bypassnamecall(self, ...)
+		end))
+
+		ui.log('auto chat bypass enabled')
+	end, 'autobypasschat')
+
+	cmds.add('unautochatbypass', function()
+		if temp.bypassnamecall then
+			hookmetamethod(game, '__namecall', temp.bypassnamecall)
+			temp.bypassnamecall = nil
+		end
+
+		ui.log('auto chat bypass disabled')
+	end, 'unautobypasschat')
 end
 
 do -- keybinds
@@ -2911,7 +2982,7 @@ do -- end
 				game:Shutdown()
 			end,
 			rejoin = function()
-				cmds.exec('rejoin', true)
+				cmds.exec('rejoin', '1dd0;')
 			end,
 			join = function(placeId)
 				tpService:Teleport(placeId[1], choco.game.me)
